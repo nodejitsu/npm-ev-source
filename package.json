@@ -1,0 +1,34 @@
+{
+  "name": "npm-ev-source",
+  "version": "0.0.0",
+  "description": "Transform the npm data format to use an event-source pattern in order to ensure we have a sustainable data model going forward.",
+  "main": "event-source.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/nodejitsu/npm-ev-source"
+  },
+  "keywords": [
+    "transform",
+    "event-source",
+    "npm",
+    "packages"
+  ],
+  "author": "Nodejitsu Inc <info@nodejitsu.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nodejitsu/npm-ev-source/issues"
+  },
+  "homepage": "https://github.com/nodejitsu/npm-ev-source",
+  "dependencies": {
+    "http-https": "^1.0.0",
+    "seq-file": "^1.0.1",
+    "rimraf": "^2.2.6",
+    "mkdirp": "^0.3.5",
+    "parse-json-response": "^1.0.1",
+    "follow": "^0.10.4",
+    "stream-counter": "^0.2.0"
+  }
+}
