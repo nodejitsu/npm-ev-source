@@ -11,7 +11,7 @@ var SeqFile = require('seq-file');
 var http = require('http-https');
 var parse = require('parse-json-response');
 
-var version = require('../package.json').version;
+var version = require('./package.json').version;
 var ua = 'npm-ev-source/' + version + ' node/' + process.version;
 
 var noop = function () {}
@@ -28,7 +28,7 @@ function EventSource(options) {
   //
   this.skim = options.skim || 'https://skimdb.npmjs.com/registry';
 
-  if (!options.eventSource)) { throw new Error('Need eventSource DB to populate') }
+  if (!options.eventSource) { throw new Error('Need eventSource DB to populate') }
   //
   // Setup both public and private urls (public needed for attachment creation)
   //
@@ -46,8 +46,12 @@ function EventSource(options) {
   this.since = 0;
   this.follow = undefined;
 
+  //
+  // optional things
+  //
   this.ua = options.ua || ua;
   this.tmp = options.tmp;
+  this.registry = options.registry || undefined;
 
   //
   // Randomish dir so we donr reuse one potentially when debugging
@@ -85,7 +89,7 @@ EventSource.prototype.start = function () {
   }, this.onChange.bind(this));
 };
 
-EventSource.prototype.onChange(err, change) {
+EventSource.prototype.onChange = function (err, change) {
   if (err) { return this.maybeRestart(err) }
 
   if(!change.id) {
@@ -307,6 +311,7 @@ EventSource.prototype.onAttRes = function (change, v, res) {
     // property and the version property
     //
     var name = path.basename(filename);
+    this.emit('download', name);
     //
     // Create the attachment here and form the final doc when we do a PUT
     // as we need the attachment values to do all the crazy boundary shit
@@ -458,6 +463,6 @@ EventSource.prototype.pause = function () {
 // terrible happens
 //
 EventSource.prototype.resume = function () {
-  this.seqFile.save(this.since):
+  this.seqFile.save(this.since);
   this.follow.resume();
 };
