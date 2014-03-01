@@ -13,7 +13,7 @@ var parse = require('parse-json-response');
 var readmeTrim = require('npm-registry-readme-trim');
 
 var version = require('../package.json').version;
-var ua = 'npm-registry-transform/' + version + ' node/' + process.version;
+var ua = 'npm-ev-source/' + version + ' node/' + process.version;
 
 module.exports = EventSource;
 
@@ -45,11 +45,7 @@ function EventSource(options) {
   this.since = 0;
   this.follow = undefined;
 
-  //
-  // Count obj for things being iterated on each doc
-  //
-  this.count = {};
-
+  this.ua = options.ua || ua;
   this.tmp = options.tmp;
 
   //
@@ -100,6 +96,12 @@ EventSource.prototype.onChange(err, change) {
   this.pause();
   this.since = change.seq;
 
+  //
+  // We don't care about these as we have to make our own anyway
+  //
+  if (/^_design/.test(change.id)) {
+    return this.resume();
+  }
   return change.deleted
     ? this.delete(change)
     : this.getDoc(change);
@@ -110,6 +112,7 @@ EventSource.prototype.delete = function (change) {
   //
   // Not implemented yet
   //
+  this.resume();
 };
 
 EventSource.prototype.getDoc = function (change) {
@@ -153,10 +156,13 @@ EventSource.prototype.split = function (change) {
   var doc = change.doc;
   var versions = Object.keys(doc.versions);
   var tmp = path.resolve(this.tmp, change.id + '-' + change.seq);
+
+  //
+  // Setup count for how many iterations to expect
+  //
+  change.count = versions.length;
   //
   // TODO: Handle stars
-  //
-  this.count[change.id] = versions.length;
   //
   // TODO: check if it exists in database
   // First iteration we are just going to populate this
@@ -172,14 +178,15 @@ EventSource.prototype.split = function (change) {
 };
 
 //
-//
+// Fetch the attachment for the specified version that we are iterating through
 //
 EventSource.prototype.fetchAtt = function (change, v) {
   var doc = change.doc;
   var vDoc = doc.versions[v];
   var reg = url.parse(vDoc.dist.tarball);
   //
-  // May need to specify registry depending on the situation
+  // May need to specify registry depending on the situation which is the
+  // direct url to whatever tarball service
   //
   if (this.registry) {
     var p = '/' + change.id + '/-/' + path.basename(reg.pathname)
@@ -188,7 +195,7 @@ EventSource.prototype.fetchAtt = function (change, v) {
 
   reg.method = 'GET';
   reg.headers = {
-    'user-agent': ua,
+    'user-agent': this.ua,
     'connection': 'close'
   };
 
@@ -208,11 +215,14 @@ EventSource.prototype.onAttRes = function (change, v, res) {
   var vDoc = doc.versions[v];
   var att = vDoc.dist.tarball;
   var sum = vDoc.dist.shasum;
-  var filename = doc.name + '-' + v + '.tgz';
+  var filename = change.id + '-' + v + '.tgz';
   var file = path.join(this.tmp, change.id + '-' + change.seq, filename);
 
   if (res.statusCode != 200) {
-    return; // retry here
+    //
+    // TODO: Retry
+    //
+    return this.emit('error', new Error('Unable to properly fetch attachment ' + filename));
   }
 
   //
@@ -220,61 +230,221 @@ EventSource.prototype.onAttRes = function (change, v, res) {
   //
   var fileStream = fs.createWriteStream(file);
   var sha = crypto.createHash('sha1');
-  var goodSha = false;
+  var shaOk = false;
+  var errState = null;
 
   sha.on('data', function (data) {
     data = data.toString('hex');
     if (data === sum) {
-      goodSha = true;
+      shaOk = true;
     }
   });
   if (!res.headers['content-length']) {
     var counter = new Counter();
     res.pipe(counter);
   }
+
   res.pipe(sha);
   res.pipe(fileStream);
 
-  fstr.on('error', function(er) {
-    err.change = change
-    err.version = v
-    err.path = file
-    err.url = att
-    this.emit('error', errState = errState || er)
+  //
+  // Add some extra info to the error obj if this happens and emit
+  // TODO: This shouldn't really happen but we should refetch if this is the
+  // case
+  //
+  fileStream.on('error', function (err) {
+    err.change = change;
+    err.version = v;
+    err.path = file;
+    err.url = att;
+    errState = err;
+    this.emit('error', err);
+  }.bind(this));
+
+  //
+  // See if we to stop here because the stream errored
+  //
+  fileStream.on('close', function () {
+    if (errState || !shaOk) {
+      //
+      // Hmm so this will definitely be hit maybe do the refetch here
+      // for both cases if the sha is not the same AND if we failed to write to
+      // the filesystem
+      //
+      // just gonna throw an error for now cause shit is fucked
+      //
+      return this.emit('error', new Error('Sha did not match or we are in a bad state ' + errState));
+    }
+    //
+    // Hmm should these be the same urls as before? I think so
+    //
+    var newAtt = this.pubEventSource + '/' + change.id +
+                  '/' + change.id + '-' + v + '.tgz';
+
+    //
+    // Remark: Setup the new document that we are forming with any necessary
+    // attributes from the old behemoth doc.
+    //
+    vDoc.dist.tarball = newAtt
+    vDoc.time = doc.time[v];
+    //
+    // Attach the default readme to the version document so we ensure
+    // each version has one at least
+    //
+    vDoc.readmeFilename = vDoc.readmeFilename || doc.readmeFilename;
+    vDoc.readme = vDoc.readme || doc.readme;
+    //
+    // Ensure we get content length to append to the data structure we use to
+    // send the actual request.
+    //
+    var cl = res.headers['content-length']
+      ? +res.headers['content-length']
+      : counter.bytes;
+
+    //
+    // Remark: I guess keep the name of the attachment the same as before?
+    // **note** at least we know that we can form this name from the name
+    // property and the version property
+    //
+    var name = path.basename(filename);
+    //
+    // Create the attachment here and form the final doc when we do a PUT
+    // as we need the attachment values to do all the crazy boundary shit
+    //
+    var attachment = {
+      length: cl,
+      follows: true,
+      // We make an assumption here but this should be safe (in theory);
+      type: res.headers['content-type'] || 'application/octet-stream'
+    };
+
+    this.putDoc(change, vDoc, name, attachment);
   }.bind(this));
 };
 
 //
-// Head request the event source database to see if we have a doc
-// (may not be needed actually)
+// Insert the single document with its one attachment as a single
+// multipart/related request so it is much more efficient
 //
-EventSource.prototype.headEs = function (fetch, doc, key) {
-  var id = doc.versions[key]._id;
+EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
+  var id = vDoc._id;
+  var file = path.join(this.tmp, change.id + '-' + change.seq, name);
+
+  //
+  // Start setting up request related things;
+  //
   var opts = url.parse(this.eventSource + '/' + id);
-  opts.method = 'HEAD';
+  opts.method = 'PUT';
   opts.headers = {
-    'content-type': 'application/json',
+    'user-agent': this.ua,
+    'content-type': 'multipart/related;boundary="' + this.boundary + '"',
     'connection': 'close'
   };
+  //
+  // Make a doc buffer to write to the stream
+  //
+  var doc = new Buffer(JSON.stringify(vDoc), 'utf8');
+  //
+  // Ridiculous boundary strings that we need to separate our request with.
+  //
+  var docBoundary = '--' + this.boundary + '\r\n' +
+    'content-type: application/json\r\n' +
+    'content-length: ' + doc.length + '\r\n\r\n';
 
+  var attBoundary = '\r\n--' + this.boundary + '\r\n' +
+    'content-length: ' + att.length + '\r\n' +
+    'content-disposition: attachment; filename=' +
+    JSON.stringify(name) + '\r\n' +
+    'content-type: ' + att.type + '\r\n\r\n';
+
+  var finalBoundary = '\r\n--' + this.boundary + '--';
+
+  opts.headers['content-length'] = doc.length + att.length
+    + docBoundary + attBoundary + finalBoundary;
+
+  //
+  // Create that request for the big PUT!
+  //
   var req = http.request(opts);
   req.on('error', this.emit.bind(this, 'error'));
-  req.on('response', this.onHeadRes.bind(this))
-  req.end();
+  req.on('response', parse(this.onPutRes.bind(this, change, vDoc)));
+
+
+  //
+  // Begin writing to the request and then pipe the file stream after the
+  // attBondary
+  //
+  req.write(docBoundary, 'ascii');
+  req.write(doc);
+  req.write(attBoundary, 'ascii');
+
+  //
+  // Setup the readStream and finish it off with a pipe!
+  //
+  var rs = fs.createReadStream(file);
+  rs.on('error', this.emit.bind(this, 'error'));
+
+  //
+  // Since we technically need to write a last boundary after the stream,
+  // we listen for end and do that here
+  //
+  rs.on('end', function () {
+    req.write(finalBoundary, 'ascii');
+    req.end();
+  }.bind(this));
+  rs.pipe(req, { end: false });
+
 };
 
-EventSource.prototype.onHeadRes = function () {
+//
+// Check for errors and such after we attempt our crazy multipart/related PUT
+//
+EventSource.prototype.onPutRes = function (change, doc, err, data, res) {
+  if (err || res.statusCode != 200) {
+    return this.emit('error', err || new Error('PUT failed with ' + res.statusCode));
+  }
+  this.emit('put', doc, data);
+  this.isFinished(change)
 
 };
 
+//
+// Check if we are finished with our iteration since we are doing `n` PUTs
+// based on the number of versions each document has
+//
+EventSource.prototype.isFinished = function (change) {
+  if (--change.count === 0) {
+    rimraf(this.tmp + '/' + change.id + '-' + change.seq, noop);
+    return this.resume();
+  }
+};
+
+//
+// If follow errors, there is a good chance we don't need to crash
+// as we have already completely disposed of the underlying request object.
+// Only do this when there are no changes
+//
+EventSource.prototype.maybeRestart = function (err) {
+  if (/made no changes/.test(err.message)) {
+    this.emit('restart', err.message);
+    this.follow.dead = false;
+    return follow.start();
+  }
+  this.emit('error', err);
+};
+
+//
+// Follow pause helper, just cause its nice
+//
 EventSource.prototype.pause = function () {
-  if (this.follow) {
-    this.follow.pause();
-  }
+  this.follow.pause();
 };
-
+//
+// Since we assume a concurrency of 1, on each resume save the seq that we just
+// inserted into the database so we know where to start from if something
+// terrible happens
+//
 EventSource.prototype.resume = function () {
-  if (this.follow) {
-    this.follow.resume();
-  }
+  this.seqFile.save(this.since):
+  this.follow.resume();
 };
