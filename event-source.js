@@ -10,10 +10,11 @@ var follow = require('follow');
 var SeqFile = require('seq-file');
 var http = require('http-https');
 var parse = require('parse-json-response');
-var readmeTrim = require('npm-registry-readme-trim');
 
 var version = require('../package.json').version;
 var ua = 'npm-ev-source/' + version + ' node/' + process.version;
+
+var noop = function () {}
 
 module.exports = EventSource;
 
@@ -85,9 +86,7 @@ EventSource.prototype.start = function () {
 };
 
 EventSource.prototype.onChange(err, change) {
-  if (err) {
-    return this.emit('error', err);
-  }
+  if (err) { return this.maybeRestart(err) }
 
   if(!change.id) {
     return;
@@ -102,6 +101,7 @@ EventSource.prototype.onChange(err, change) {
   if (/^_design/.test(change.id)) {
     return this.resume();
   }
+
   return change.deleted
     ? this.delete(change)
     : this.getDoc(change);
@@ -331,6 +331,12 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
   var file = path.join(this.tmp, change.id + '-' + change.seq, name);
 
   //
+  // Oh yea add attachment shit to the actual vDoc
+  //
+  vDoc._attachments = {};
+  vDoc._attachments[name] = att;
+
+  //
   // Start setting up request related things;
   //
   var opts = url.parse(this.eventSource + '/' + id);
@@ -340,12 +346,14 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
     'content-type': 'multipart/related;boundary="' + this.boundary + '"',
     'connection': 'close'
   };
+
   //
   // Make a doc buffer to write to the stream
   //
   var doc = new Buffer(JSON.stringify(vDoc), 'utf8');
+
   //
-  // Ridiculous boundary strings that we need to separate our request with.
+  // Ridiculous boundary strings that we need to separate the pieces of our request with.
   //
   var docBoundary = '--' + this.boundary + '\r\n' +
     'content-type: application/json\r\n' +
@@ -359,6 +367,9 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
 
   var finalBoundary = '\r\n--' + this.boundary + '--';
 
+  //
+  // Add all the length values so we know what we are dealing with here
+  //
   opts.headers['content-length'] = doc.length + att.length
     + docBoundary + attBoundary + finalBoundary;
 
@@ -369,10 +380,9 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
   req.on('error', this.emit.bind(this, 'error'));
   req.on('response', parse(this.onPutRes.bind(this, change, vDoc)));
 
-
   //
-  // Begin writing to the request and then pipe the file stream after the
-  // attBondary
+  // Start the boundary -> data chain. Pipe some shit, then write the last
+  // boundary
   //
   req.write(docBoundary, 'ascii');
   req.write(doc);
@@ -392,6 +402,9 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
     req.write(finalBoundary, 'ascii');
     req.end();
   }.bind(this));
+  //
+  // Don't auto end so that we can write the final boundary
+  //
   rs.pipe(req, { end: false });
 
 };
