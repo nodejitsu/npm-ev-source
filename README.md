@@ -1,8 +1,14 @@
 # npm-ev-source
 
-The role of this module is to be a service that takes the standard npm data
-structure and splits and transforms it into the various event-sourced documents
-it should be composed of.
+**work in progress**
+
+The role of this module is to be a service, or a module used for a service takes
+the standard npm data structure and splits and transforms it into the various
+`event-sourced` documents it should be composed of.
+
+This is very similar to
+[`npm-fullfat-registry`](https://github.com/npm/npm-fullfat-registry) except
+forms the data based on a new model.
 
 The main idea here is to take each current document, and divide it into `n` number
 of documents where `n` is the number of versions for the package. Each document
@@ -18,30 +24,22 @@ On each change
   pause feed
 
   get versions
-  query view to get list of versions that exist in ev db
-  filter versions based on this view
-  iterate through only the needed versions
+  (query view to get list of versions that exist in ev db)
+  (filter versions based on this view)
 
   for v in versions
     fetch attachment/tarball from whichever source
+
     **Note**No need to do any diffs here as we are assuming each version
     is an atomic unit that will not be changed again
 
-Insert each new version that was fetched along with the tarball as
-`multipart/related` or read the whole file and do one atomic PUT.
-Whichever seems more sane.
+    Insert each new version that was fetched along with the tarball as
+    `multipart/related` so we can stream all the things.
 
 ```
+**note** what is in parens is currently not implemented in the present version.
 
-# Questions
-
-Metadata that CAN be changed and is a generic property of the package.
-
-1. README contents + readmeFilename
-  This either needs to be in its own separate document or be attached to each
-  document with the latest one winning in the merged document. I'm thinking we
-  should just make sure it is trimmed and just put it in with the version
-  because it does make sense to be in there
+# TODO:
 
 1. Stars
   These need to be their own document as well, we will make creating these
