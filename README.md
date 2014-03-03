@@ -36,6 +36,8 @@ On each change
     Insert each new version that was fetched along with the tarball as
     `multipart/related` so we can stream all the things.
 
+  resume feed
+
 ```
 **note** what is in parens is currently not implemented in the present version.
 
