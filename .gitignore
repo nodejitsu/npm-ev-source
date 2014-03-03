@@ -16,6 +16,8 @@ logs
 results
 build
 .grunt
+sequence.seq
+npm-ev-source-tmp-*
 
 node_modules
 
