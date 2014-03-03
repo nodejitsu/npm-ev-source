@@ -34,6 +34,10 @@ var yargs = require('yargs')
     alias: 'user-agent',
     string: true
   })
+  .options('f', {
+    description: 'The seq-file to be use',
+    alias: 'seq-file'
+  })
   .options('h', {
     description: 'Displays this message',
     alias: 'h'
@@ -62,12 +66,16 @@ es.on('start', function () {
   console.log('AND WE BEGIN GOOD SIR/MADAM %s pid=%d', es.ua, process.pid);
 }).on('change', function (change) {
   console.log('CHANGE %d: %s', change.seq, change.id);
+}).on('restart', function (message) {
+  console.log('RESTART on %s', message)
 }).on('put', function (doc) {
   console.log('PUT <- doc %s', doc._id);
+}).on('skip', function (message) {
+  console.log('SKIP %s', message);
 }).on('delete', function (doc) {
   console.log('DELETE doc %s', doc._id);
 }).on('error', function (err) {
-  console.error(err);
+  console.error('ERROR', err);
   throw err;
 }).on('download', function(name) {
   console.log('DOWNLOAD -> doc %s', name);
