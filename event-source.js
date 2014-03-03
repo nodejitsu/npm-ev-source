@@ -3,6 +3,7 @@ var crypto = require('crypto');
 var url = require('url');
 var util = require('util');
 var path = require('path');
+var fs = require('fs');
 var Counter = require('stream-counter');
 var mkdirp = require('mkdirp');
 var rimraf = require('rimraf');
@@ -37,7 +38,7 @@ function EventSource(options) {
   delete es.auth;
   this.pubEventSource = url.format(es).replace(/\/+$/, '');
 
-  this.seqFile = new SeqFile(options.seqFile || 'seqeunce.seq');
+  this.seqFile = new SeqFile(options.seqFile || 'sequence.seq');
 
   //
   // Follow Opts
@@ -54,11 +55,20 @@ function EventSource(options) {
   this.registry = options.registry || undefined;
 
   //
+  // Prefix for _ keys that are currently in the nested level documents.
+  // This is bad practice with couchdb and it rejects them in most cases
+  //
+  this._prefix = 'npm:';
+  //
+  // Default boundary for multipart/related requests
+  //
+  this.boundary = 'npm-ev-source-' + crypto.randomBytes(6).toString('base64');
+  //
   // Randomish dir so we donr reuse one potentially when debugging
   //
   if(!this.tmp) {
     var c = crypto.randomBytes(6).toString('hex');
-    this.tmp = 'npm-registry-transform-' + process.pid + '-' + c;
+    this.tmp = 'npm-ev-source-tmp-' + process.pid + '-' + c;
   }
 
   this.seqFile.read(this.onSeq.bind(this));
@@ -100,7 +110,9 @@ EventSource.prototype.onChange = function (err, change) {
   this.since = change.seq;
 
   //
-  // We don't care about these as we have to make our own anyway
+  // We don't REALLY care about design but in the future we
+  // do need the rewrites element. Might as well just store this separately
+  // though.
   //
   if (/^_design/.test(change.id)) {
     return this.resume();
@@ -140,9 +152,9 @@ EventSource.prototype.getDoc = function (change) {
 
 };
 
-EventSource.prototype.onGet = function (err, doc, res) {
-  if (err || res.statusCode != 200) {
-    return this.emit('error', err || new Error('Fetch from skim failed with ' + res.statusCode));
+EventSource.prototype.onGet = function (change, err, doc, res) {
+  if (err) {
+    return this.emit('error', err);
   }
   change.doc = doc;
   this.split(change);
@@ -298,6 +310,21 @@ EventSource.prototype.onAttRes = function (change, v, res) {
     vDoc.readmeFilename = vDoc.readmeFilename || doc.readmeFilename;
     vDoc.readme = vDoc.readme || doc.readme;
     //
+    // Remark: So these tricksy little underscore based keys can cause problems
+    // for couchDB as it uses them internally. In reality we shouldnt use these
+    // AT ALL but lets see with what we can get away with prefixing.
+    //
+    vDoc = Object.keys(vDoc).reduce(function (doc, key) {
+      if (key !== '_id' && /^_/.test(key)) {
+        var k = this._prefix + key;
+        doc[k] = vDoc[key];
+        return doc;
+      }
+      doc[key] = vDoc[key];
+      return doc;
+    }.bind(this), {});
+
+    //
     // Ensure we get content length to append to the data structure we use to
     // send the actual request.
     //
@@ -320,9 +347,8 @@ EventSource.prototype.onAttRes = function (change, v, res) {
       length: cl,
       follows: true,
       // We make an assumption here but this should be safe (in theory);
-      type: res.headers['content-type'] || 'application/octet-stream'
+      content_type: res.headers['content-type'] || 'application/octet-stream'
     };
-
     this.putDoc(change, vDoc, name, attachment);
   }.bind(this));
 };
@@ -332,7 +358,7 @@ EventSource.prototype.onAttRes = function (change, v, res) {
 // multipart/related request so it is much more efficient
 //
 EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
-  var id = vDoc._id;
+  var id = encodeURIComponent(vDoc._id);
   var file = path.join(this.tmp, change.id + '-' + change.seq, name);
 
   //
@@ -340,7 +366,6 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
   //
   vDoc._attachments = {};
   vDoc._attachments[name] = att;
-
   //
   // Start setting up request related things;
   //
@@ -368,7 +393,7 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
     'content-length: ' + att.length + '\r\n' +
     'content-disposition: attachment; filename=' +
     JSON.stringify(name) + '\r\n' +
-    'content-type: ' + att.type + '\r\n\r\n';
+    'content-type: ' + att.content_type + '\r\n\r\n';
 
   var finalBoundary = '\r\n--' + this.boundary + '--';
 
@@ -376,7 +401,7 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
   // Add all the length values so we know what we are dealing with here
   //
   opts.headers['content-length'] = doc.length + att.length
-    + docBoundary + attBoundary + finalBoundary;
+    + docBoundary.length + attBoundary.length + finalBoundary.length;
 
   //
   // Create that request for the big PUT!
@@ -418,10 +443,20 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
 // Check for errors and such after we attempt our crazy multipart/related PUT
 //
 EventSource.prototype.onPutRes = function (change, doc, err, data, res) {
-  if (err || res.statusCode != 200) {
-    return this.emit('error', err || new Error('PUT failed with ' + res.statusCode));
+  if (err && err.statusCode != 409) {
+    return this.emit('error', err);
   }
-  this.emit('put', doc, data);
+  //
+  // Jut ignore because it means it was inserted and we crashed for whatever
+  // reason
+  // TODO: Don't let this case exist and use retries and record skip failures
+  //
+  if (res.statusCode == 409) {
+    this.emit('skip', err.message);
+  }
+  else {
+    this.emit('put', doc, data);
+  }
   this.isFinished(change)
 
 };
