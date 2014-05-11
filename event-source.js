@@ -136,6 +136,7 @@ EventSource.prototype.getDoc = function (change) {
   var opts = url.parse(this.skim + '/' + change.id + q);
 
   opts.method = 'GET';
+  opts.agent = false;
   opts.headers = {
     'content-type': 'application/json',
     'connection': 'close'
@@ -210,6 +211,7 @@ EventSource.prototype.fetchAtt = function (change, v) {
   }
 
   reg.method = 'GET';
+  reg.agent = false;
   reg.headers = {
     'user-agent': this.ua,
     'connection': 'close'
@@ -371,6 +373,7 @@ EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
   //
   var opts = url.parse(this.eventSource + '/' + id);
   opts.method = 'PUT';
+  opts.agent = false;
   opts.headers = {
     'user-agent': this.ua,
     'content-type': 'multipart/related;boundary="' + this.boundary + '"',
