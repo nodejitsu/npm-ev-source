@@ -39,6 +39,7 @@ function EventSource(options) {
   this.pubEventSource = url.format(es).replace(/\/+$/, '');
 
   this.seqFile = new SeqFile(options.seqFile || 'sequence.seq');
+  this.missingLog = options.missingLog || false;
 
   //
   // Follow Opts
@@ -240,7 +241,9 @@ EventSource.prototype.onAttRes = function (change, v, res) {
     //
     // TODO: Retry
     //
-    return this.emit('error', new Error('Unable to properly fetch attachment ' + filename));
+    return this.missingLog
+      ? fs.appendFile(this.missingLog, att + '\n', this.isFinished.bind(this, change))
+      : this.emit('error', new Error('Unable to properly fetch attachment ' + filename));
   }
 
   //

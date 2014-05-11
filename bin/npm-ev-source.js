@@ -34,6 +34,11 @@ var yargs = require('yargs')
     alias: 'user-agent',
     string: true
   })
+  .options('m', {
+    description: 'file path to a log file to record missing attachments',
+    alias: 'missing-log',
+    string: true
+  })
   .options('f', {
     description: 'The seq-file to be use',
     alias: 'seq-file'
@@ -51,7 +56,7 @@ if (argv.h) {
 
 var config = argv.c
   ? require(path.resolve(argv.c))
-  : { registry: argv.r, eventSource: argv.e, skim: argv.s, ua: argv.u, tmp: argv.t }
+  : { registry: argv.r, eventSource: argv.e, skim: argv.s, ua: argv.u, tmp: argv.t , missingLog: argv.m}
 
 try {
   var es = new EventSource(config)
