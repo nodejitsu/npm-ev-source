@@ -1,6 +1,6 @@
 {
   "name": "npm-ev-source",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Transform the npm data format to use an event-source pattern in order to ensure we have a sustainable data model going forward.",
   "main": "event-source.js",
   "bin": {
