@@ -293,6 +293,15 @@ EventSource.prototype.onAttRes = function (change, v, res) {
       //
       return this.emit('error', new Error('Sha did not match or we are in a bad state ' + errState));
     }
+
+    //
+    // Remark: I guess keep the name of the attachment the same as before?
+    // **note** at least we know that we can form this name from the name
+    // property and the version property
+    //
+    var name = path.basename(filename);
+    this.emit('download', name);
+
     //
     // Hmm should these be the same urls as before? I think so
     //
@@ -304,7 +313,7 @@ EventSource.prototype.onAttRes = function (change, v, res) {
     // attributes from the old behemoth doc.
     //
     vDoc.dist.tarball = newAtt
-    vDoc.time = doc.time[v];
+    vDoc.time = doc.time && doc.time[v] || null;
     //
     // Attach the default readme to the version document so we ensure
     // each version has one at least
@@ -334,13 +343,6 @@ EventSource.prototype.onAttRes = function (change, v, res) {
       ? +res.headers['content-length']
       : counter.bytes;
 
-    //
-    // Remark: I guess keep the name of the attachment the same as before?
-    // **note** at least we know that we can form this name from the name
-    // property and the version property
-    //
-    var name = path.basename(filename);
-    this.emit('download', name);
     //
     // Create the attachment here and form the final doc when we do a PUT
     // as we need the attachment values to do all the crazy boundary shit
