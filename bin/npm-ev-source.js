@@ -81,7 +81,7 @@ es.on('start', function () {
   console.log('DELETE doc %s', doc._id);
 }).on('error', function (err) {
   console.error('ERROR', err);
-  throw err;
+  process.exit(1);
 }).on('download', function(name) {
   console.log('DOWNLOAD -> doc %s', name);
 })
