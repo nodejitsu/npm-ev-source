@@ -72,7 +72,7 @@ es.on('start', function () {
 }).on('change', function (change) {
   console.log('CHANGE %d: %s', change.seq, change.id);
 }).on('restart', function (message) {
-  console.log('RESTART on %s', message)
+  console.log('RESTART of follower');
 }).on('put', function (doc) {
   console.log('PUT <- doc %s', doc._id);
 }).on('skip', function (message) {

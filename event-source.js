@@ -98,10 +98,12 @@ EventSource.prototype.start = function () {
     since: this.since,
     inactivity_ms: this.inactivity_ms
   }, this.onChange.bind(this));
+
+  this.follow.on('restart', this.emit.bind(this, 'restart'));
 };
 
 EventSource.prototype.onChange = function (err, change) {
-  if (err) { return this.maybeRestart(err) }
+  if (err) { return this.emit('error', err) }
 
   if(!change.id) {
     return;
@@ -478,20 +480,6 @@ EventSource.prototype.isFinished = function (change) {
     rimraf(this.tmp + '/' + change.id + '-' + change.seq, noop);
     return this.resume();
   }
-};
-
-//
-// If follow errors, there is a good chance we don't need to crash
-// as we have already completely disposed of the underlying request object.
-// Only do this when there are no changes
-//
-EventSource.prototype.maybeRestart = function (err) {
-  if (/made no changes/.test(err.message)) {
-    this.emit('restart', err.message);
-    this.follow.dead = false;
-    return follow.start();
-  }
-  this.emit('error', err);
 };
 
 //
