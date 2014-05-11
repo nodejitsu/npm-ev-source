@@ -112,6 +112,7 @@ EventSource.prototype.onChange = function (err, change) {
   this.pause();
   this.since = change.seq;
 
+  this.emit('change', change);
   //
   // We don't REALLY care about design but in the future we
   // do need the rewrites element. Might as well just store this separately
