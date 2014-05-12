@@ -162,7 +162,47 @@ EventSource.prototype.onGet = function (change, err, doc, res) {
     return this.emit('error', err);
   }
   change.doc = doc;
-  this.split(change);
+  return isUnpublished(doc)
+    ? this.unpublished(change)
+    : this.split(change);
+};
+
+//
+// Make stubs for unpublished docs
+//
+EventSource.prototype.unpublished = function (change) {
+  var doc = change.doc;
+  //
+  // We are going to do some bullshit versions here based on the time records
+  //
+  var vDocs = Object.keys(doc.time)
+    .filter(function (key) {
+      return key != 'modified' && key != 'created';
+    }).reduce(function (acc, v) {
+      var d = acc[v] = {};
+      d._id =  doc._id + '@' + v;
+      d.name = doc.name;
+      d.time = doc.time[v] || null;
+      // this isn't totally correct but should be OK for now
+      d.maintainers = doc.time.unpublished.maintainers;
+      return acc;
+    }, {}
+  );
+
+  var versions = Object.keys(vDocs);
+
+  change.count = versions.length;
+
+  versions.forEach(function (v) {
+    this.put(change, vDoc[v]);
+  }, this);
+
+};
+//
+// We simply just want to put a doc into the database here
+//
+EventSource.prototype.put = function (change, version) {
+
 };
 
 //
@@ -498,3 +538,9 @@ EventSource.prototype.resume = function () {
   this.seqFile.save(this.since);
   this.follow.resume();
 };
+
+function isUnpublished(doc) {
+  return doc
+    && doc.time
+    && doc.time.unpublished;
+}
