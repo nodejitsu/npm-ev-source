@@ -399,7 +399,8 @@ EventSource.prototype.onAttRes = function (change, v, res) {
       // We make an assumption here but this should be safe (in theory);
       content_type: res.headers['content-type'] || 'application/octet-stream'
     };
-    this.putDoc(change, vDoc, name, attachment);
+
+    this.putMultiPart(change, vDoc, name, attachment);
   }.bind(this));
 };
 
@@ -407,9 +408,10 @@ EventSource.prototype.onAttRes = function (change, v, res) {
 // Insert the single document with its one attachment as a single
 // multipart/related request so it is much more efficient
 //
-EventSource.prototype.putDoc = function (change, vDoc, name, att)  {
+EventSource.prototype.putMultiPart = function (change, vDoc, name, att)  {
   var id = encodeURIComponent(vDoc._id);
   var file = path.join(this.tmp, change.id + '-' + change.seq, name);
+
 
   //
   // Oh yea add attachment shit to the actual vDoc
