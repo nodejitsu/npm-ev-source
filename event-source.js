@@ -202,6 +202,22 @@ EventSource.prototype.unpublished = function (change) {
 // We simply just want to put a doc into the database here
 //
 EventSource.prototype.put = function (change, version) {
+  var id = encodeURIComponent(version._id);
+  var opts = url.parse(this.eventSource + '/' + id);
+  opts.method = 'PUT';
+  opts.agent = false;
+  opts.headers = {
+    'content-type': 'application/json',
+    'connection': 'close'
+  };
+
+  var payload = new Buffer(JSON.stringify(version), 'utf8');
+
+  var req = http.request(opts);
+  req.on('error', this.emit.bind(this, 'error'));
+  req.on('response', parse(this.onPutRes.bind(this, change, version)));
+  req.write(payload);
+  req.end();
 
 };
 
