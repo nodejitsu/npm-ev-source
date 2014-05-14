@@ -191,6 +191,13 @@ EventSource.prototype.unpublished = function (change) {
 
   var versions = Object.keys(vDocs);
 
+  //
+  // Skip when there are no versions to iterate through
+  //
+  if (!versions.length) {
+    return this.resume();
+  }
+
   change.count = versions.length;
 
   versions.forEach(function (v) {
@@ -234,6 +241,12 @@ EventSource.prototype.split = function (change) {
   var versions = Object.keys(doc.versions);
   var tmp = path.resolve(this.tmp, change.id + '-' + change.seq);
 
+  //
+  // We don't care if it has no versions so skip it
+  //
+  if (!versions.length) {
+    return this.resume();
+  }
   //
   // Setup count for how many iterations to expect
   //
