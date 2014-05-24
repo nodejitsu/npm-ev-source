@@ -56,7 +56,13 @@ if (argv.h) {
 
 var config = argv.c
   ? require(path.resolve(argv.c))
-  : { registry: argv.r, eventSource: argv.e, skim: argv.s, ua: argv.u, tmp: argv.t , missingLog: argv.m}
+  : { registry: argv.r,
+      eventSource: argv.e,
+      skim: argv.s,
+      ua: argv.u,
+      tmp: argv.t ,
+      missingLog: argv.m
+    }
 
 try {
   var es = new EventSource(config)
