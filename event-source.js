@@ -1,4 +1,4 @@
-var EE = require('events').EventEmitter;
+var Writable = require('stream').Writable;
 var crypto = require('crypto');
 var url = require('url');
 var util = require('util');
@@ -7,7 +7,7 @@ var fs = require('fs');
 var Counter = require('stream-counter');
 var mkdirp = require('mkdirp');
 var rimraf = require('rimraf');
-var follow = require('follow');
+var Changes = require('changes-stream');
 var SeqFile = require('seq-file');
 var http = require('http-https');
 var parse = require('parse-json-response');
@@ -19,11 +19,12 @@ var noop = function () {}
 
 module.exports = EventSource;
 
-util.inherits(EventSource, EE);
+util.inherits(EventSource, Writable);
 
 function EventSource(options) {
   if (!(this instanceof EventSource)) { return new EventSource(options) }
-
+  Writable.call(this, { highWaterMark: 16, objectMode: true });
+  options = options || {};
   //
   // URLs and such
   //
@@ -93,23 +94,27 @@ EventSource.prototype.onSeq = function (err, data) {
 EventSource.prototype.start = function () {
   this.emit('start');
 
-  this.follow = follow({
+  this.changes = new Changes({
     db: this.skim,
     since: this.since,
     inactivity_ms: this.inactivity_ms
-  }, this.onChange.bind(this));
+  });
 
-  this.follow.on('restart', this.emit.bind(this, 'restart'));
+  this.changes.on('error', this.emit.bind(this, 'error'));
+  this.changes.on('retry', this.emit.bind(this, 'retry'));
+  this.changes.on('pause', this.emit.bind(this, 'pause'))
+  this.changes.on('resume', this.emit.bind(this, 'resume'));
+
+  this.changes.pipe(this);
 };
 
-EventSource.prototype.onChange = function (err, change) {
-  if (err) { return this.emit('error', err) }
+EventSource.prototype._write = function (change, enc, callback) {
+  this._callback = callback;
 
   if(!change.id) {
     return;
   }
 
-  this.pause();
   this.since = change.seq;
 
   this.emit('change', change);
@@ -555,19 +560,13 @@ EventSource.prototype.isFinished = function (change) {
 };
 
 //
-// Follow pause helper, just cause its nice
-//
-EventSource.prototype.pause = function () {
-  this.follow.pause();
-};
-//
 // Since we assume a concurrency of 1, on each resume save the seq that we just
 // inserted into the database so we know where to start from if something
 // terrible happens
 //
 EventSource.prototype.resume = function () {
   this.seqFile.save(this.since);
-  this.follow.resume();
+  this._callback();
 };
 
 function isUnpublished(doc) {
